@@ -1,0 +1,56 @@
+# Render Blueprint — Infrastructure as Code
+# This file provisions all Render services when you click "New > Blueprint" in the Render dashboard.
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: backstage
+    runtime: docker
+    # Path to the Dockerfile, relative to repo root
+    dockerfilePath: ./packages/backend/Dockerfile
+    # Docker build context = repo root (needed for monorepo)
+    dockerContext: .
+    plan: free
+    # Port the container listens on
+    port: 7007
+    # Auto-deploy on every push to main branch
+    branch: main
+    healthCheckPath: /healthcheck
+    envVars:
+      # Render sets this automatically — used for APP_BASE_URL below
+      - key: APP_BASE_URL
+        # This will be filled in by you after first deploy — Render gives you the URL
+        # e.g. https://backstage-xxxx.onrender.com
+        value: https://backstage.onrender.com   # ← UPDATE THIS after first deploy
+
+      # GitHub integration token — set this in the Render dashboard as a secret
+      - key: GITHUB_TOKEN
+        sync: false   # Render will prompt you to enter this value in the dashboard
+
+      # Backend-to-backend auth secret — generate with: node -e "console.log(require('crypto').randomBytes(24).toString('base64'))"
+      - key: BACKEND_SECRET
+        generateValue: true
+
+      # PostgreSQL connection — wired from the database defined below
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: backstage-db
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: backstage-db
+          property: port
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: backstage-db
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: backstage-db
+          property: password
+
+databases:
+  - name: backstage-db
+    plan: free
+    databaseName: backstage
+    user: backstage

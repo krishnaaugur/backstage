@@ -1,60 +1,79 @@
-# This dockerfile builds an image for the backend package.
-# It should be executed with the root of the repo as docker context.
+# Multi-stage Dockerfile for Backstage
+# Stage 1: Build — installs all deps and compiles the app
+# Stage 2: Runtime — lean production image with only what's needed
 #
-# Before building this image, be sure to have run the following commands in the repo root:
-#
-# yarn install --immutable
-# yarn tsc
-# yarn build:backend
-#
-# Host build steps (yarn install, yarn build:backend) must use the same
-# Node version as the FROM image below. Mismatched versions break native modules.
-#
-# Once the commands have been run, you can build the image using `yarn build-image`
-#
-# Alternatively, there is also a multi-stage Dockerfile documented here:
-# https://backstage.io/docs/deployment/docker#multi-stage-build
+# Build context must be the repo root:
+#   docker build -f packages/backend/Dockerfile -t backstage .
 
-FROM node:24-trixie-slim
+# ---- Stage 1: Build ----
+FROM node:22-bookworm-slim AS build
 
-# Install sqlite3 dependencies. You can skip this if you don't use sqlite3 in the image,
-# in which case you should also move better-sqlite3 to "devDependencies" in package.json.
+# Install build tools needed for native modules (e.g. better-sqlite3)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+      python3 \
+      g++ \
+      make \
+      libsqlite3-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy yarn config and lockfile first for better layer caching
+COPY .yarn ./.yarn
+COPY .yarnrc.yml yarn.lock package.json backstage.json ./
+
+# Copy all package.json files (workspaces) so yarn can resolve the graph
+COPY packages/app/package.json ./packages/app/package.json
+COPY packages/backend/package.json ./packages/backend/package.json
+
+# Install ALL dependencies (dev + prod) needed for the build
+RUN --mount=type=cache,target=/root/.cache/yarn,sharing=locked \
+    yarn install --immutable
+
+# Copy the full source
+COPY . .
+
+# Build TypeScript types, then the backend bundle
+RUN yarn tsc
+RUN yarn build:backend --config ../../app-config.yaml
+
+# ---- Stage 2: Runtime ----
+FROM node:22-bookworm-slim AS runtime
+
+# Install runtime deps for native modules
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
     apt-get install -y --no-install-recommends libsqlite3-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# From here on we use the least-privileged `node` user to run the backend.
+# Run as the least-privileged node user
 USER node
-
-# This should create the app dir as `node`.
-# If it is instead created as `root` then the `tar` command below will fail: `can't create directory 'packages/': Permission denied`.
-# If this occurs, then ensure BuildKit is enabled (`DOCKER_BUILDKIT=1`) so the app dir is correctly created as `node`.
 WORKDIR /app
 
-# Copy files needed by Yarn
+# Copy yarn config
 COPY --chown=node:node .yarn ./.yarn
-COPY --chown=node:node .yarnrc.yml ./
-COPY --chown=node:node backstage.json ./
+COPY --chown=node:node .yarnrc.yml backstage.json ./
 
-# This switches many Node.js dependencies to production mode.
 ENV NODE_ENV=production
 
-# Copy repo skeleton first, to avoid unnecessary docker cache invalidation.
-# The skeleton contains the package.json of each package in the monorepo,
-# and along with yarn.lock and the root package.json, that's enough to run yarn install.
+# Copy repo skeleton + lockfile to install production deps only
 COPY --chown=node:node yarn.lock package.json packages/backend/dist/skeleton.tar.gz ./
 RUN tar xzf skeleton.tar.gz && rm skeleton.tar.gz
 
 RUN --mount=type=cache,target=/home/node/.cache/yarn,sharing=locked,uid=1000,gid=1000 \
     yarn workspaces focus --all --production && rm -rf "$(yarn cache clean)"
 
-# This will include the examples, if you don't need these simply remove this line
+# Copy example catalog files (referenced by default app-config)
 COPY --chown=node:node examples ./examples
 
-# Then copy the rest of the backend bundle, along with any other files we might want.
+# Copy the compiled backend bundle and both app-configs
 COPY --chown=node:node packages/backend/dist/bundle.tar.gz app-config*.yaml ./
 RUN tar xzf bundle.tar.gz && rm bundle.tar.gz
+
+EXPOSE 7007
 
 CMD ["node", "packages/backend", "--config", "app-config.yaml", "--config", "app-config.production.yaml"]
