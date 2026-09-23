@@ -2,10 +2,8 @@
 .yarn/cache
 .yarn/install-state.gz
 node_modules
-packages/*/src
 packages/*/node_modules
-plugins
 *.local.yaml
-# Exclude local build artifacts — Docker builds from source in CI
+# Exclude local build artifacts — Docker builds from source
 packages/*/dist
 dist-types

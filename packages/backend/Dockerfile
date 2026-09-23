@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for Backstage
-# Stage 1: Build — installs all deps and compiles the app inside Docker
-# Stage 2: Runtime — lean production image copying only compiled artifacts
+# Stage 1: Build — installs all deps and compiles the backend bundle inside Docker
+# Stage 2: Runtime — lean production image with only compiled artifacts
 #
 # Build context must be the repo root:
 #   docker build -f packages/backend/Dockerfile -t backstage .
@@ -21,23 +21,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 WORKDIR /app
 
-# Copy yarn config and lockfile first for better layer caching
+# Copy yarn config first for better layer caching
 COPY .yarn ./.yarn
 COPY .yarnrc.yml yarn.lock package.json backstage.json ./
 
-# Copy all workspace package.json files so yarn can resolve the monorepo graph
-COPY packages/app/package.json ./packages/app/package.json
-COPY packages/backend/package.json ./packages/backend/package.json
+# Copy all workspace package.json files so yarn can resolve the full monorepo graph
+# This includes both packages/ and plugins/
+COPY packages/ ./packages/
+COPY plugins/ ./plugins/
 
 # Install ALL dependencies (dev + prod) needed for the build
 RUN --mount=type=cache,target=/root/.cache/yarn,sharing=locked \
     yarn install --immutable
 
-# Copy full source
+# Copy full source (node_modules, dist, etc. are excluded via .dockerignore)
 COPY . .
 
-# Build TypeScript types, then the backend bundle
-RUN yarn tsc
+# Build the backend bundle — this compiles TypeScript internally, no separate yarn tsc needed
 RUN yarn build:backend --config ../../app-config.yaml
 
 # ---- Stage 2: Runtime ----
@@ -60,9 +60,10 @@ COPY --chown=node:node .yarnrc.yml backstage.json ./
 
 ENV NODE_ENV=production
 
-# Copy yarn.lock + package.json from context, and the skeleton from the build stage
-# skeleton.tar.gz contains all workspace package.json files needed for yarn install
+# Copy yarn.lock + package.json from context
 COPY --chown=node:node yarn.lock package.json ./
+
+# Copy skeleton.tar.gz from build stage (contains workspace package.json structure)
 COPY --from=build --chown=node:node /app/packages/backend/dist/skeleton.tar.gz ./
 RUN tar xzf skeleton.tar.gz && rm skeleton.tar.gz
 
@@ -73,7 +74,7 @@ RUN --mount=type=cache,target=/home/node/.cache/yarn,sharing=locked,uid=1000,gid
 # Copy example catalog data (referenced by default app-config.yaml)
 COPY --chown=node:node examples ./examples
 
-# Copy app configs from context
+# Copy app configs from build context
 COPY --chown=node:node app-config*.yaml ./
 
 # Copy the compiled backend bundle from the build stage
