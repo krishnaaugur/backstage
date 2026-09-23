@@ -27,7 +27,6 @@ backend:
       database: ${POSTGRES_DB}
       # Supabase requires SSL
       ssl:
-        require: true
         rejectUnauthorized: false
 
 auth:
