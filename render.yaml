@@ -11,8 +11,7 @@ services:
     # Docker build context = repo root (needed for monorepo)
     dockerContext: .
     plan: free
-    # Auto-deploy on every push to master branch
-    branch: master
+    branch: main
     envVars:
       # Render sets this automatically — used for APP_BASE_URL below
       - key: APP_BASE_URL
