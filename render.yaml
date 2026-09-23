@@ -11,11 +11,8 @@ services:
     # Docker build context = repo root (needed for monorepo)
     dockerContext: .
     plan: free
-    # Port the container listens on
-    port: 7007
-    # Auto-deploy on every push to main branch
-    branch: main
-    healthCheckPath: /healthcheck
+    # Auto-deploy on every push to master branch
+    branch: master
     envVars:
       # Render sets this automatically — used for APP_BASE_URL below
       - key: APP_BASE_URL
