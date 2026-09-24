@@ -16,7 +16,7 @@ services:
       # Set this to your Render service URL after first deploy
       # e.g. https://backstage-xxxx.onrender.com
       - key: APP_BASE_URL
-        value: https://backstage.onrender.com   # ← UPDATE THIS after first deploy
+        value: https://backstage-mcmw.onrender.com
 
       # GitHub integration token — enter value in Render dashboard
       - key: GITHUB_TOKEN
